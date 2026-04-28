@@ -16,9 +16,11 @@ SUPPORT_MESSAGE = (
 )
 
 
-def sad_button() -> InlineKeyboardMarkup:
+def choice_keyboard() -> InlineKeyboardMarkup:
+    """Две кнопки вместо одной 'мне грустно'."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💙 мне грустно", callback_data="sad:start")]
+        [InlineKeyboardButton(text="🍽 Планирую поесть", callback_data="flow:plan")],
+        [InlineKeyboardButton(text="✅ Уже поела", callback_data="flow:ate")],
     ])
 
 
@@ -50,15 +52,16 @@ async def cmd_start(message: Message):
         else:
             await message.answer(
                 "Привет 🤍\nЯ здесь, когда тебе нужна поддержка.\n\n"
-                "Нажми кнопку, если хочешь поговорить.",
-                reply_markup=sad_button()
+                "Что происходит?",
+                reply_markup=choice_keyboard()
             )
     except Exception as e:
         logger.exception(f"Ошибка в cmd_start: {e}")
 
 
-@router.callback_query(F.data == "sad:start")
-async def on_sad(callback: CallbackQuery):
+@router.callback_query(F.data == "flow:plan")
+async def on_flow_plan(callback: CallbackQuery):
+    """Полный сценарий — опросник 1 + опросник 2."""
     user_id = callback.from_user.id
     try:
         async with get_db() as db:
@@ -72,10 +75,44 @@ async def on_sad(callback: CallbackQuery):
                 )
                 return
             await create_session(db, user_id)
+
         await callback.message.answer(SUPPORT_MESSAGE, reply_markup=start_q1_keyboard())
         await callback.answer()
+
     except Exception as e:
-        logger.exception(f"Ошибка в on_sad: {e}")
+        logger.exception(f"Ошибка в on_flow_plan: {e}")
+        await callback.answer("Что-то пошло не так. Попробуй ещё раз.", show_alert=True)
+
+
+@router.callback_query(F.data == "flow:ate")
+async def on_flow_ate(callback: CallbackQuery):
+    """Только опросник 2 — еда уже была."""
+    user_id = callback.from_user.id
+    try:
+        async with get_db() as db:
+            existing = await get_active_session(db, user_id)
+            if existing:
+                await callback.answer()
+                await callback.message.answer(
+                    "У тебя есть незавершённый опрос.\n"
+                    "Продолжить с того места или начать заново?",
+                    reply_markup=continue_or_restart_keyboard()
+                )
+                return
+
+            # Создаём сессию и сразу переводим на q2
+            session_id = await create_session(db, user_id)
+            await update_session_step(db, session_id, "q2_step_0", "{}")
+
+        from keyboards.questionnaire2 import start_q2_keyboard
+        await callback.message.answer(
+            "Хорошо. Давай заполним опрос — это займёт пару минут.",
+            reply_markup=start_q2_keyboard()
+        )
+        await callback.answer()
+
+    except Exception as e:
+        logger.exception(f"Ошибка в on_flow_ate: {e}")
         await callback.answer("Что-то пошло не так. Попробуй ещё раз.", show_alert=True)
 
 
