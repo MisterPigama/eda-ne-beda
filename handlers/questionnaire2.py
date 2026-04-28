@@ -81,12 +81,13 @@ async def _finish_q2(message: Message, session):
         "✨ Всё записала. Спасибо, что прошла оба опроса.\n\n"
         "Данные сохранены — выгрузить их можно командой /export."
     )
-# Сразу показываем кнопку для нового цикла
+
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     await message.answer(
         "Я здесь, если понадоблюсь 🤍",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💙 мне грустно", callback_data="sad:start")]
+            [InlineKeyboardButton(text="🍽 Планирую поесть", callback_data="flow:plan")],
+            [InlineKeyboardButton(text="✅ Уже поела", callback_data="flow:ate")],
         ])
     )
 
@@ -115,7 +116,3 @@ async def on_q2_start(callback: CallbackQuery):
         logger.exception(f"Ошибка в on_q2_start: {e}")
         await callback.answer("Ошибка. Попробуй ещё раз.", show_alert=True)
 
-
-# ---------------------------------------------------------------------------
-# Callback-кнопки опросника 2 (offset 20+)
-# ---------------------------------------------------------------------------
