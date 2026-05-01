@@ -165,11 +165,13 @@ async def _check_monthly_report(bot: Bot, config: Config):
             return
 
         try:
-            report = await _build_monthly_report(db)
             cursor = await db.execute("SELECT id FROM users")
             users = await cursor.fetchall()
+
             for user in users:
+                report = await _build_monthly_report_for_user(db, user["id"])
                 await bot.send_message(user["id"], report)
+
             await db.execute(
                 "INSERT OR IGNORE INTO schema_version (version) VALUES (?)",
                 (marker,)
@@ -180,20 +182,35 @@ async def _check_monthly_report(bot: Bot, config: Config):
             logger.exception(f"Ошибка формирования сводки: {e}")
 
 
-async def _build_monthly_report(db) -> str:
+async def _build_monthly_report_for_user(db, user_id: int) -> str:
     now = datetime.now()
-    month_start = f"{now.year}-{now.month:02d}-01"
+
+    if now.month == 1:
+        report_month = 12
+        report_year = now.year - 1
+    else:
+        report_month = now.month - 1
+        report_year = now.year
+
+    month_start = f"{report_year}-{report_month:02d}-01"
+    month_end = f"{report_year + 1}-01-01" if report_month == 12 else f"{report_year}-{report_month + 1:02d}-01"
+
+    month_name_ru = {
+        1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+        5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+        9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+    }
 
     cursor = await db.execute(
-        "SELECT COUNT(*) AS total FROM sessions WHERE created_at >= ?",
-        (month_start,)
+        "SELECT COUNT(*) AS total FROM sessions WHERE user_id = ? AND created_at >= ? AND created_at < ?",
+        (user_id, month_start, month_end)
     )
     row = await cursor.fetchone()
     total = row["total"] if row else 0
 
     cursor = await db.execute(
-        "SELECT COUNT(*) AS done FROM sessions WHERE created_at >= ? AND status = 'complete'",
-        (month_start,)
+        "SELECT COUNT(*) AS done FROM sessions WHERE user_id = ? AND created_at >= ? AND created_at < ? AND status = 'complete'",
+        (user_id, month_start, month_end)
     )
     row = await cursor.fetchone()
     complete = row["done"] if row else 0
@@ -212,11 +229,11 @@ async def _build_monthly_report(db) -> str:
             END AS period,
             COUNT(*) AS cnt
         FROM sessions
-        WHERE created_at >= ?
+        WHERE user_id = ? AND created_at >= ? AND created_at < ?
         GROUP BY period
         ORDER BY cnt DESC
         """,
-        (month_start,)
+        (user_id, month_start, month_end)
     )
     by_time = await cursor.fetchall()
 
@@ -234,16 +251,16 @@ async def _build_monthly_report(db) -> str:
             END AS weekday,
             COUNT(*) AS cnt
         FROM sessions
-        WHERE created_at >= ?
+        WHERE user_id = ? AND created_at >= ? AND created_at < ?
         GROUP BY weekday
         ORDER BY cnt DESC
         """,
-        (month_start,)
+        (user_id, month_start, month_end)
     )
     by_weekday = await cursor.fetchall()
 
     lines = [
-        f"📊 Сводка за {now.strftime('%B %Y')}",
+        f"📊 Сводка за {month_name_ru[report_month]} {report_year}",
         "",
         f"Всего запусков: {total}",
         f"Завершено полностью: {complete}",
